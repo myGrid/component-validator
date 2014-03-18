@@ -8,12 +8,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
@@ -43,7 +46,11 @@ import uk.org.taverna.ns._2012.component.profile.PortAnnotation;
 import uk.org.taverna.ns._2012.component.profile.Profile;
 import uk.org.taverna.ns._2012.component.profile.SemanticAnnotation;
 
+import com.hp.hpl.jena.ontology.Individual;
 import com.hp.hpl.jena.ontology.OntModel;
+import com.hp.hpl.jena.rdf.model.RDFNode;
+import com.hp.hpl.jena.rdf.model.Resource;
+import com.hp.hpl.jena.rdf.model.Statement;
 
 import edu.umd.cs.findbugs.annotations.Nullable;
 
@@ -239,14 +246,56 @@ public class Validator extends XPathSupport {
 			return result;
 		}
 
-		// TODO Auto-generated method stub
+		List<SemanticAnnotation> selectionCriteria = new ArrayList<>();
+		for (SemanticAnnotation sa : portConstraint.getSemanticAnnotation())
+			if (sa.getMinOccurs().intValue() >= 1)
+				selectionCriteria.add(sa);
+		boolean mandate = !selectionCriteria.isEmpty();
+		if (selectionCriteria.isEmpty())
+			for (SemanticAnnotation sa : portConstraint.getSemanticAnnotation())
+				if (sa.getMinOccurs().intValue() == 0
+						&& !sa.getMaxOccurs().equals("0"))
+					selectionCriteria.add(sa);
+		List<Element> restrictedPortList = selectPorts(portList,
+				selectionCriteria, ontology);
+		if (restrictedPortList.isEmpty() && mandate)
+			result.add(new Assertion(false, "No " + portType
+					+ "port matches semantic constraints"));
+		// FIXME Auto-generated method stub
 		return result;
 	}
 
+	private List<Element> selectPorts(Element portList,
+			List<SemanticAnnotation> restrict, Map<String, OntModel> ontology)
+			throws XPathExpressionException {
+		String term = "net.sf.taverna.t2.annotation.annotationbeans.SemanticAnnotation";
+		List<Element> ports = select(portList, "./t:port");
+		Iterator<Element> it = ports.iterator();
+		mainloop: while (it.hasNext()) {
+			Element port = it.next();
+			Element content = getMaybe(port,
+					".//annotationBean[@class='%s']/content", term);
+			if (content == null) {
+				it.remove();
+				continue;
+			}
+			String rdf = content.getTextContent();
+
+			for (SemanticAnnotation sa : restrict) {
+				OntModel om = ontology.get(sa.getOntology());
+				if (!satisfy(rdf, sa, om)) {
+					it.remove();
+					continue mainloop;
+				}
+			}
+		}
+		return ports;
+	}
+
+	// Mock up for absence
 	private List<Assertion> validateAbsentPort(String portType,
 			Port portConstraint, Map<String, OntModel> ontology) {
 		List<Assertion> result = new ArrayList<>();
-		// Mock up for absence
 		result.add(new Assertion(true, "Ignoring depth constraints"));
 		for (PortAnnotation ac : portConstraint.getAnnotation())
 			result.add(new Assertion(true, "Ignoring "
@@ -292,6 +341,68 @@ public class Validator extends XPathSupport {
 			SemanticAnnotation annotationConstraint, OntModel model) {
 		// FIXME Auto-generated method stub
 		return null;
+	}
+
+	private static String BASE = String.format("widget://%s/",
+			UUID.randomUUID());
+	protected static final String ENCODING = "TURTLE";
+
+	private boolean satisfy(String rdf,
+			SemanticAnnotation annotationConstraint, OntModel model) {
+		OntModel local = createOntologyModel();
+		local.read(new StringReader(rdf), BASE, ENCODING);
+		if (!annotationConstraint.getValue().isEmpty())
+			return !local
+					.listStatements(
+							null,
+							local.createProperty(annotationConstraint
+									.getPredicate()),
+							local.createResource(annotationConstraint
+									.getValue())).toList().isEmpty();
+
+		List<Statement> s = local.listStatements(null,
+				local.createProperty(annotationConstraint.getPredicate()),
+				(RDFNode) null).toList();
+		if (s.isEmpty())
+			return false;
+
+		/*
+		 * If there's no class constraint, we're done here.
+		 */
+		if (annotationConstraint.getClazz() == null)
+			return true;
+
+		RDFNode node = s.get(0).getObject();
+		if (isInClass(node, annotationConstraint))
+			return true;
+
+		/*
+		 * See if the model from the ontology knows anything about this
+		 * individual.
+		 */
+		if (node.isResource()
+				&& isInClass(model.getIndividual(node.asResource().getURI()),
+						annotationConstraint))
+			return true;
+
+		// FIXME Not an individual! What to do here?
+		return false;
+	}
+
+	private static boolean isInClass(RDFNode node,
+			SemanticAnnotation annotationConstraint) {
+		if (node == null)
+			return false;
+		if (node.isLiteral())
+			return node.asLiteral().getDatatypeURI()
+					.equals(annotationConstraint.getClazz());
+		if (node.canAs(Individual.class))
+			for (Resource clazz : node.as(Individual.class)
+					.listOntClasses(false).toList())
+				if (clazz.getURI().equals(annotationConstraint.getClazz()))
+					return true;
+		// What about other things?
+		return false;
 	}
 
 	private Assertion validateComponentBasicAnnotation(Element component,
