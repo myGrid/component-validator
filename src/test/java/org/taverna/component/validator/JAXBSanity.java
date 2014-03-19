@@ -1,8 +1,8 @@
 package org.taverna.component.validator;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertEquals;
 import static org.taverna.component.validator.support.JAXBSupport.makeValidatingMarshaller;
 
 import java.io.StringReader;
@@ -14,8 +14,6 @@ import javax.xml.bind.JAXBIntrospector;
 import javax.xml.bind.Marshaller;
 import javax.xml.bind.Unmarshaller;
 import javax.xml.namespace.QName;
-
-import junit.framework.Assert;
 
 import org.junit.Before;
 import org.junit.Test;
