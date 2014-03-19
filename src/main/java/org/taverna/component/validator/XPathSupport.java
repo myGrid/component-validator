@@ -84,11 +84,12 @@ class XPathSupport {
 			}
 		};
 		this.log = log;
+		cache = new XPathMap();
 	}
 
 	private final Logger log;
 	private final NamespaceContext context;
-	private final XPathMap cache = new XPathMap();
+	private final XPathMap cache;
 
 	@SuppressWarnings("serial")
 	private class XPathMap extends HashMap<String, XPathExpression> {
