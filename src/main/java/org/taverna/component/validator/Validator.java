@@ -3,6 +3,7 @@ package org.taverna.component.validator;
 import static com.hp.hpl.jena.rdf.model.ModelFactory.createOntologyModel;
 import static java.lang.Integer.parseInt;
 import static java.util.Collections.unmodifiableMap;
+import static org.slf4j.LoggerFactory.getLogger;
 
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -14,7 +15,6 @@ import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -31,7 +31,6 @@ import javax.xml.transform.sax.SAXSource;
 import javax.xml.xpath.XPathExpressionException;
 
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -78,8 +77,9 @@ public class Validator extends XPathSupport {
 	}
 
 	public Validator() throws JAXBException {
-		super(LoggerFactory.getLogger(XPathSupport.class));// FIXME! Namespaces!
-		log = LoggerFactory.getLogger(Validator.class);
+		super(getLogger(XPathSupport.class), "t",
+				"http://taverna.sf.net/2008/xml/t2flow", "", "");
+		log = getLogger(Validator.class);
 		docBuilderFactory = DocumentBuilderFactory.newInstance();
 		docBuilderFactory.setNamespaceAware(true);
 		context = JAXBContext.newInstance(Profile.class);

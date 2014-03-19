@@ -1,7 +1,15 @@
 package org.taverna.component.validator;
 
 import static java.lang.String.format;
+import static javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD;
+import static javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA;
+import static javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET;
+import static javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING;
 import static javax.xml.XMLConstants.NULL_NS_URI;
+import static javax.xml.XMLConstants.XMLNS_ATTRIBUTE;
+import static javax.xml.XMLConstants.XMLNS_ATTRIBUTE_NS_URI;
+import static javax.xml.XMLConstants.XML_NS_PREFIX;
+import static javax.xml.XMLConstants.XML_NS_URI;
 import static javax.xml.transform.OutputKeys.INDENT;
 import static javax.xml.transform.OutputKeys.OMIT_XML_DECLARATION;
 import static javax.xml.xpath.XPathConstants.BOOLEAN;
@@ -19,9 +27,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import javax.xml.XMLConstants;
 import javax.xml.namespace.NamespaceContext;
-import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.Transformer;
@@ -46,12 +52,16 @@ import edu.umd.cs.findbugs.annotations.Nullable;
 
 class XPathSupport {
 	XPathSupport(Logger log, String... map) {
-		final Map<String, String> nsmap = new HashMap<String, String>();
-		for (int i = 0; i < map.length; i += 2)
+		final Map<String, String> nsmap = new HashMap<>();
+		final Map<String, String> pfmap = new HashMap<>();
+		for (int i = 0; i < map.length; i += 2) {
 			nsmap.put(map[i], map[i + 1]);
-		nsmap.put(XMLConstants.XML_NS_PREFIX, XMLConstants.XML_NS_URI);
-		nsmap.put(XMLConstants.XMLNS_ATTRIBUTE,
-				XMLConstants.XMLNS_ATTRIBUTE_NS_URI);
+			pfmap.put(map[i + 1], map[i]);
+		}
+		nsmap.put(XML_NS_PREFIX, XML_NS_URI);
+		nsmap.put(XMLNS_ATTRIBUTE, XMLNS_ATTRIBUTE_NS_URI);
+		pfmap.put(XML_NS_URI, XML_NS_PREFIX);
+		pfmap.put(XMLNS_ATTRIBUTE_NS_URI, XMLNS_ATTRIBUTE);
 		context = new NamespaceContext() {
 			@Override
 			public String getNamespaceURI(String prefix) {
@@ -62,8 +72,10 @@ class XPathSupport {
 			}
 
 			@Override
-			public String getPrefix(String namespaceURI) {
-				throw new UnsupportedOperationException();
+			public String getPrefix(String uri) {
+				if (uri == null)
+					throw new IllegalArgumentException();
+				return pfmap.get(uri);
 			}
 
 			@Override
@@ -156,21 +168,26 @@ class XPathSupport {
 
 	public Element read(String doc) throws ParserConfigurationException,
 			SAXException, IOException {
-		DocumentBuilder db = DocumentBuilderFactory.newInstance()
-				.newDocumentBuilder();
-		return db.parse(new InputSource(new StringReader(doc)))
+		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+		dbf.setNamespaceAware(true);
+		return dbf.newDocumentBuilder()
+				.parse(new InputSource(new StringReader(doc)))
 				.getDocumentElement();
 	}
 
 	public String write(Element elem) throws TransformerException {
-		Transformer transformer = TransformerFactory.newInstance()
-				.newTransformer();
-		transformer.setOutputProperty(INDENT, "yes");
-		transformer.setOutputProperty(OMIT_XML_DECLARATION, "yes");
+		TransformerFactory tf = TransformerFactory.newInstance();
+		tf.setAttribute(ACCESS_EXTERNAL_DTD, "");
+		tf.setAttribute(ACCESS_EXTERNAL_SCHEMA, "");
+		tf.setAttribute(ACCESS_EXTERNAL_STYLESHEET, "");
+		tf.setFeature(FEATURE_SECURE_PROCESSING, true);
+		Transformer copier = tf.newTransformer();
+		copier.setOutputProperty(INDENT, "yes");
+		copier.setOutputProperty(OMIT_XML_DECLARATION, "yes");
 
 		StreamResult result = new StreamResult(new StringWriter());
 		DOMSource source = new DOMSource(elem);
-		transformer.transform(source, result);
+		copier.transform(source, result);
 
 		return result.getWriter().toString();
 	}
