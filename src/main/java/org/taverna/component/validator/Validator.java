@@ -11,7 +11,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.PrintStream;
 import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
@@ -35,6 +34,9 @@ import javax.xml.transform.sax.SAXSource;
 import javax.xml.xpath.XPathExpressionException;
 
 import org.slf4j.Logger;
+import org.taverna.component.validator.Assertion.Fail;
+import org.taverna.component.validator.Assertion.Pass;
+import org.taverna.component.validator.Assertion.Warn;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -78,9 +80,11 @@ public class Validator extends XPathSupport {
 			System.exit(1);
 		}
 		URL pwd = new File(".").getAbsoluteFile().toURI().toURL();
+		List<Assertion> assertions;
 		try {
-			new Validator().validate(new URL(pwd, args[0]), new URL(pwd,
-					args[1]), System.out);
+			// TODO separate loading model from actual validation
+			assertions = new Validator().validate(new URL(pwd, args[0]),
+					new URL(pwd, args[1]));
 		} catch (FileNotFoundException | UnmarshalException e) {
 			Throwable t = e;
 			while (t.getCause() != null)
@@ -91,6 +95,7 @@ public class Validator extends XPathSupport {
 			}
 			throw e;
 		}
+		new AssertionReporter().reportAssertions(assertions);
 	}
 
 	public Validator() throws JAXBException {
@@ -102,7 +107,7 @@ public class Validator extends XPathSupport {
 		context = JAXBContext.newInstance(Profile.class);
 	}
 
-	public void validate(URL componentUrl, URL profileUrl, PrintStream out)
+	public List<Assertion> validate(URL componentUrl, URL profileUrl)
 			throws IOException, SAXException, ParserConfigurationException,
 			JAXBException, XPathExpressionException {
 		DocumentBuilder db = docBuilderFactory.newDocumentBuilder();
@@ -130,7 +135,7 @@ public class Validator extends XPathSupport {
 				.getDocumentElement();
 		realizeAttrs(component);
 		List<Profile> profiles = getProfiles(profileUrl.toString());
-		validate(component, profiles, out);
+		return validate(component, profiles);
 	}
 
 	public List<Profile> getProfiles(String root) throws JAXBException {
@@ -143,50 +148,19 @@ public class Validator extends XPathSupport {
 			result.add(p);
 			if (p.getExtends() == null)
 				break;
-			// TODO qualify this URL (is it a URL?)
+			// FIXME how to map this to a URL!?
 			where = p.getExtends().getProfileId();
+			log.warn("cannot resolve " + where + " to a profile document");
+			break;
 		}
-		result.add(getBaseProfile());
-		// TODO load root profile?
+		// FIXME should be what we've last reached, not where we started
+		if (!root.equals(BASE_PROFILE_URL))
+			result.add(getBaseProfile());
 		return result;
 	}
 
-	public static abstract class Assertion {
-		Assertion(boolean isSatisified, boolean isWarning, String message) {
-			this.satisfied = isSatisified;
-			this.warning = isWarning;
-			this.text = message;
-		}
-
-		public final String text;
-		public final boolean satisfied;
-		public final boolean warning;
-	}
-
-	public static class Fail extends Assertion {
-		public Fail(String message, Object... args) {
-			super(false, false, String.format("[N] " + message, args));
-		}
-	}
-
-	public static class Pass extends Assertion {
-		public Pass(String message, Object... args) {
-			this(false, "[Y] " + message, args);
-		}
-
-		Pass(boolean warn, String message, Object... args) {
-			super(true, warn, String.format(message, args));
-		}
-	}
-
-	public static class Warn extends Pass {
-		public Warn(String message, Object... args) {
-			super(true, "[W] " + message, args);
-		}
-	}
-
-	public boolean validate(Element component, List<Profile> profiles,
-			PrintStream out) throws IOException, XPathExpressionException {
+	public List<Assertion> validate(Element component, List<Profile> profiles)
+			throws IOException, XPathExpressionException {
 		List<Assertion> assertions = new ArrayList<>();
 		Map<String, OntModel> ontocache = new HashMap<>();
 		for (Profile p : profiles) {
@@ -199,23 +173,7 @@ public class Validator extends XPathSupport {
 			assertions.addAll(validateComponent(component, p.getComponent(),
 					ontomap));
 		}
-		return reportAssertionStatus(out, assertions);
-	}
-
-	public boolean reportAssertionStatus(PrintStream out,
-			List<Assertion> assertions) {
-		int sat = 0;
-		for (Assertion a : assertions)
-			if (a.satisfied)
-				sat++;
-		if (sat == assertions.size())
-			out.println("SATISFIED (" + sat + "/" + assertions.size() + ")");
-		else
-			out.println("NOT SATISFIED (" + sat + "/" + assertions.size() + ")");
-		out.println("");
-		for (Assertion a : assertions)
-			out.println(a.text);
-		return sat == assertions.size();
+		return assertions;
 	}
 
 	private OntModel loadOntology(String ontologyURI) throws IOException {
@@ -418,7 +376,7 @@ public class Validator extends XPathSupport {
 
 		for (Element port : restrictedPortList) {
 			if (text(port, "./t:depth").isEmpty()) {
-				result.add(new Warn("No depth information for port '%s'",
+				result.add(new Warn("no depth information for port '%s'",
 						portType, name.get(port)));
 				continue;
 			}
