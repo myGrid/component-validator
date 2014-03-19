@@ -7,6 +7,7 @@ import static org.slf4j.LoggerFactory.getLogger;
 
 import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -15,6 +16,7 @@ import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -23,6 +25,7 @@ import java.util.UUID;
 
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
+import javax.xml.bind.UnmarshalException;
 import javax.xml.bind.Unmarshaller;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -52,6 +55,7 @@ import uk.org.taverna.ns._2012.component.profile.SemanticAnnotation;
 
 import com.hp.hpl.jena.ontology.Individual;
 import com.hp.hpl.jena.ontology.OntModel;
+import com.hp.hpl.jena.rdf.model.Property;
 import com.hp.hpl.jena.rdf.model.RDFNode;
 import com.hp.hpl.jena.rdf.model.Resource;
 import com.hp.hpl.jena.rdf.model.Statement;
@@ -72,8 +76,19 @@ public class Validator extends XPathSupport {
 			System.exit(1);
 		}
 		URL pwd = new File(".").getAbsoluteFile().toURI().toURL();
-		new Validator().validate(new URL(pwd, args[0]), new URL(pwd, args[1]),
-				System.out);
+		try {
+			new Validator().validate(new URL(pwd, args[0]), new URL(pwd,
+					args[1]), System.out);
+		} catch (FileNotFoundException | UnmarshalException e) {
+			Throwable t = e;
+			while (t.getCause() != null)
+				t = t.getCause();
+			if (t instanceof FileNotFoundException) {
+				System.err.println(t.getMessage());
+				System.exit(1);
+			}
+			throw e;
+		}
 	}
 
 	public Validator() throws JAXBException {
@@ -147,13 +162,13 @@ public class Validator extends XPathSupport {
 
 	public static class Fail extends Assertion {
 		public Fail(String message, Object... args) {
-			super(false, false, String.format(message, args));
+			super(false, false, String.format("[N] "+message, args));
 		}
 	}
 
 	public static class Pass extends Assertion {
 		public Pass(String message, Object... args) {
-			this(false, message, args);
+			this(false, "[Y] "+message, args);
 		}
 
 		Pass(boolean warn, String message, Object... args) {
@@ -163,7 +178,7 @@ public class Validator extends XPathSupport {
 
 	public static class Warn extends Pass {
 		public Warn(String message, Object... args) {
-			super(true, message, args);
+			super(true, "[W] "+message, args);
 		}
 	}
 
@@ -321,17 +336,10 @@ public class Validator extends XPathSupport {
 			Port portConstraint, Map<String, OntModel> ontology)
 			throws XPathExpressionException {
 		List<Assertion> result = new ArrayList<>();
+		List<Element> restrictedPortList;
 		if (portConstraint.getName() != null) {
-			if (isMatched(portList, "./t:port/t:name = '%s'",
+			if (!isMatched(portList, "./t:port/t:name = '%s'",
 					portConstraint.getName())) {
-				result.add(new Pass("Found %s port called %s", portType,
-						portConstraint.getName()));
-				result.addAll(validateSinglePort(
-						portType,
-						get(portList, "./t:port[t:name='%s']",
-								portConstraint.getName()), portConstraint,
-						ontology));
-			} else {
 				if (portConstraint.getMinOccurs().intValue() > 0)
 					result.add(new Fail("No %s port called %s", portType,
 							portConstraint.getName()));
@@ -340,26 +348,92 @@ public class Validator extends XPathSupport {
 							portConstraint.getName()));
 				result.addAll(validateAbsentPort(portType, portConstraint,
 						ontology));
+				return result;
 			}
-			return result;
+			result.add(new Pass("Found %s port called %s", portType,
+					portConstraint.getName()));
+			Element port = get(portList, "./t:port[t:name='%s']",
+					portConstraint.getName());
+			Element rdfElement = getMaybe(port,
+					".//annotationBean[@class='%s']/content", ANNOTATION_BEAN);
+			if (rdfElement == null
+					&& !portConstraint.getSemanticAnnotation().isEmpty())
+				result.add(new Warn(
+						"no semantic annotation present for %s port %s",
+						portType, portConstraint.getName()));
+			else {
+				OntModel rdf = parseRDF(rdfElement);
+				for (SemanticAnnotation sa : portConstraint
+						.getSemanticAnnotation()) {
+					OntModel om = ontology.get(sa.getOntology());
+					String predName = om.getProperty(sa.getPredicate())
+							.getLocalName();// TODO Nicer name?
+					if (satisfy(rdf, sa, om))
+						result.add(new Pass(
+								"satisfied semantic annotation for property %s on %s port %s",
+								predName, portType, portConstraint.getName()));
+					else
+						result.add(new Fail(
+								"failed semantic annotation for property %s on %s port %s",
+								predName, portType, portConstraint.getName()));
+				}
+			}
+			restrictedPortList = Arrays.asList(port);
+		} else {
+			List<SemanticAnnotation> selectionCriteria = new ArrayList<>();
+			for (SemanticAnnotation sa : portConstraint.getSemanticAnnotation())
+				if (sa.getMinOccurs().intValue() >= 1)
+					selectionCriteria.add(sa);
+			boolean mandate = !selectionCriteria.isEmpty();
+			if (selectionCriteria.isEmpty())
+				for (SemanticAnnotation sa : portConstraint
+						.getSemanticAnnotation())
+					if (sa.getMinOccurs().intValue() == 0
+							&& !sa.getMaxOccurs().equals("0"))
+						selectionCriteria.add(sa);
+			restrictedPortList = selectPorts(portList, selectionCriteria,
+					ontology);
+			if (restrictedPortList.isEmpty() && mandate)
+				result.add(new Fail("No %s port matches semantic constraints",
+						portType));
 		}
 
-		List<SemanticAnnotation> selectionCriteria = new ArrayList<>();
-		for (SemanticAnnotation sa : portConstraint.getSemanticAnnotation())
-			if (sa.getMinOccurs().intValue() >= 1)
-				selectionCriteria.add(sa);
-		boolean mandate = !selectionCriteria.isEmpty();
-		if (selectionCriteria.isEmpty())
-			for (SemanticAnnotation sa : portConstraint.getSemanticAnnotation())
-				if (sa.getMinOccurs().intValue() == 0
-						&& !sa.getMaxOccurs().equals("0"))
-					selectionCriteria.add(sa);
-		List<Element> restrictedPortList = selectPorts(portList,
-				selectionCriteria, ontology);
-		if (restrictedPortList.isEmpty() && mandate)
-			result.add(new Fail("No %s port matches semantic constraints",
-					portType));
-		// FIXME Auto-generated method stub
+		Map<Element, String> name = new HashMap<>();
+		for (Element port : restrictedPortList)
+			name.put(port, text(port, "./t:name"));
+
+		for (PortAnnotation pa : portConstraint.getAnnotation())
+			for (Element port : restrictedPortList)
+				if (!isMatched(port,
+						"./t:annotations//annotationBean[@class='%s']",
+						getBasicAnnotationTerm(pa.getValue().value())))
+					result.add(new Fail("%s port %s lacks %s annotation",
+							portType, name.get(port), pa.getValue()));
+				else
+					result.add(new Pass("%s port %s has %s annotation",
+							portType, name.get(port), pa.getValue()));
+
+		for (Element port : restrictedPortList) {
+			if (text(port, "./t:depth").isEmpty()) {
+				result.add(new Warn("No depth information for port %s",
+						portType, name.get(port)));
+				continue;
+			}
+			int depth = Integer.parseInt(text(port, "./t:depth"));
+			if (depth < portConstraint.getMinDepth().intValue())
+				result.add(new Fail(
+						"%s port %s is too shallow: %d instead of %s",
+						portType, name.get(port), depth, portConstraint
+								.getMinDepth()));
+			else if (!portConstraint.getMaxDepth().equals("unbounded")
+					&& depth > Integer.parseInt(portConstraint.getMaxDepth()))
+				result.add(new Fail(
+						"%s port %s is too deeph: %d instead of %s", portType,
+						name.get(port), depth, portConstraint.getMaxDepth()));
+			else
+				result.add(new Pass("%s port %s depth is in permitted range",
+						portType, name.get(port)));
+		}
 		return result;
 	}
 
@@ -403,12 +477,6 @@ public class Validator extends XPathSupport {
 		return result;
 	}
 
-	private List<Assertion> validateSinglePort(String portType, Element port,
-			Port portConstraint, Map<String, OntModel> ontology)
-			throws XPathExpressionException {
-		return null;// FIXME
-	}
-
 	private List<Assertion> validateOutputPort(Element component,
 			Port portConstraint, Map<String, OntModel> ontology)
 			throws XPathExpressionException {
@@ -434,15 +502,53 @@ public class Validator extends XPathSupport {
 		return validateOntologyAssertion(rdf, annotationConstraint, model);
 	}
 
-	private List<Assertion> validateOntologyAssertion(@Nullable String rdf,
+	private List<Assertion> validateOntologyAssertion(
+			@Nullable String rdfString,
 			SemanticAnnotation annotationConstraint, OntModel model) {
 		List<Assertion> result = new ArrayList<>();
-		if (rdf == null) {
-			// FIXME
-		} else if (rdf.isEmpty() || !satisfy(rdf, annotationConstraint, model)) {
-			// FIXME
+		Property prop = model.createProperty(annotationConstraint
+				.getPredicate());
+		// TODO nicer property name?
+		if (rdfString == null) {
+			result.add(new Warn("no component-level semantic annotations"));
+			return result;
+		} else if (rdfString.isEmpty()) {
+			result.add(new Fail(
+					"failed to satisfy %s annotation at component level", prop
+							.getLocalName()));
+			return result;
+		}
+
+		OntModel rdf = parseRDF(rdfString);
+		if (!satisfy(rdf, annotationConstraint, model)) {
+			result.add(new Fail(
+					"failed to satisfy %s annotation at component level", prop
+							.getLocalName()));
 		} else {
-			// FIXME
+			result.add(new Pass("found %s annotation at component level", prop
+					.getLocalName()));
+			RDFNode object = null;
+			if (!annotationConstraint.getValue().isEmpty())
+				object = model.createResource(annotationConstraint.getValue());
+			int numsat = rdf.listStatements(null, prop, object).toList().size();
+			if (numsat < annotationConstraint.getMinOccurs().intValue())
+				result.add(new Fail(
+						"too few %s annotations at component level: %d instead of %s",
+						prop.getLocalName(), numsat, annotationConstraint
+								.getMinOccurs()));
+			else if (!annotationConstraint.getMaxOccurs().equals("unbounded")
+					&& numsat > Integer.parseInt(annotationConstraint
+							.getMaxOccurs()))
+				result.add(new Fail(
+						"too many %s annotations at component level: %d instead of %s",
+						prop.getLocalName(), numsat, annotationConstraint
+								.getMaxOccurs()));
+			else
+				result.add(new Pass(
+						"%d %s annotations at component level: in range %s to %s",
+						numsat, prop.getLocalName(), annotationConstraint
+								.getMinOccurs(), annotationConstraint
+								.getMaxOccurs()));
 		}
 		return result;
 	}
@@ -502,6 +608,7 @@ public class Validator extends XPathSupport {
 						annotationConstraint))
 			return true;
 
+		log.warn("object " + node + " is not an individual");
 		// FIXME Not an individual! What to do here?
 		return false;
 	}
