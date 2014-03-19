@@ -14,6 +14,7 @@ import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.io.StringReader;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -145,6 +146,7 @@ public class Validator extends XPathSupport {
 			// TODO qualify this URL (is it a URL?)
 			where = p.getExtends().getProfileId();
 		}
+		result.add(getBaseProfile());
 		// TODO load root profile?
 		return result;
 	}
@@ -673,5 +675,21 @@ public class Validator extends XPathSupport {
 	private void realizeAttrs(Element base) throws XPathExpressionException {
 		for (Node n : selectNodes(base, "//@*"))
 			((Attr) n).getValue();
+	}
+
+	private static final String BASE_PROFILE_URL = "http://build.mygrid.org.uk/taverna/BaseProfile.xml";
+	private Profile cachedBaseProfile;
+
+	private Profile getBaseProfile() throws JAXBException {
+		try {
+			if (cachedBaseProfile == null)
+				cachedBaseProfile = (Profile) context.createUnmarshaller()
+						.unmarshal(new URL(BASE_PROFILE_URL));
+			return cachedBaseProfile;
+		} catch (MalformedURLException e) {
+			log.error("unexpected problem with creating URL"
+					+ " for base profile", e);
+			return null;
+		}
 	}
 }
