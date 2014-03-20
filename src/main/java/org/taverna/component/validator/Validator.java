@@ -1,8 +1,13 @@
 package org.taverna.component.validator;
 
 import static com.hp.hpl.jena.rdf.model.ModelFactory.createOntologyModel;
+import static java.lang.Class.forName;
 import static java.lang.Integer.parseInt;
+import static java.lang.String.format;
+import static java.lang.System.getProperty;
+import static java.util.Arrays.asList;
 import static java.util.Collections.unmodifiableMap;
+import static java.util.UUID.randomUUID;
 import static org.slf4j.LoggerFactory.getLogger;
 
 import java.io.BufferedInputStream;
@@ -14,14 +19,13 @@ import java.io.InputStreamReader;
 import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
+import java.net.SocketException;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
@@ -37,6 +41,7 @@ import org.slf4j.Logger;
 import org.taverna.component.validator.Assertion.Fail;
 import org.taverna.component.validator.Assertion.Pass;
 import org.taverna.component.validator.Assertion.Warn;
+import org.taverna.component.validator.AssertionReporter.StdoutReporter;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -67,11 +72,17 @@ import com.hp.hpl.jena.rdf.model.Statement;
 import edu.umd.cs.findbugs.annotations.Nullable;
 
 public class Validator extends XPathSupport {
-	private static final String ANNOTATION_BEAN = "net.sf.taverna.t2.annotation.annotationbeans.SemanticAnnotation";
+	private static final String TOP = "/t:workflow/t:dataflow[@role='top']";
+	private static final String ANNOTATION_OF_CLASS = "./t:annotations//annotationBean[@class='%s']";
+	private static final String SKOS_LABEL = "http://www.w3.org/2004/02/skos/core#prefLabel";
+	private static final String ACTIVITIES_PKG = "net.sf.taverna.t2.activities.";
+	private static final String ANNOTATION_PKG = "net.sf.taverna.t2.annotation.annotationbeans.";
+	private static final String ANNOTATION_BEAN = ANNOTATION_PKG
+			+ "SemanticAnnotation";
 	private final DocumentBuilderFactory docBuilderFactory;
 	private final JAXBContext context;
 	private final Logger log;
-	private static final String TOP = "/t:workflow/t:dataflow[@role='top']";
+	private static final RDFNode any = null;
 
 	public static void main(String... args) throws Exception {
 		if (args.length < 2) {
@@ -95,7 +106,10 @@ public class Validator extends XPathSupport {
 			}
 			throw e;
 		}
-		new AssertionReporter().reportAssertions(assertions);
+		((AssertionReporter) forName(
+				getProperty("validator.reporter.class",
+						StdoutReporter.class.getName())).newInstance())
+				.reportAssertions(assertions);
 	}
 
 	public Validator() throws JAXBException {
@@ -186,7 +200,6 @@ public class Validator extends XPathSupport {
 			conn.addRequestProperty("Accept",
 					"application/rdf+xml,application/xml;q=0.9");
 			in = conn.getInputStream();
-			// System.out.println(conn.getHeaderFields());
 			if (conn.getContentEncoding() != null)
 				model.read(new InputStreamReader(new BufferedInputStream(in),
 						conn.getContentEncoding()), url.toString());
@@ -194,6 +207,10 @@ public class Validator extends XPathSupport {
 				// Default the guessing to Jena...
 				model.read(new BufferedInputStream(in), url.toString());
 			return model;
+		} catch (SocketException e) {
+			log.error("failed to load ontology from " + ontologyURI
+					+ " because of " + e.getMessage());
+			throw e;
 		} finally {
 			if (in != null)
 				in.close();
@@ -221,11 +238,9 @@ public class Validator extends XPathSupport {
 	private static final Map<String, String> TYPE_MAP;
 	static {
 		Map<String, String> map = new HashMap<>();
-		map.put("Tool",
-				"net.sf.taverna.t2.activities.externaltool.ExternalToolActivity");
-		map.put("XPath", "net.sf.taverna.t2.activities.xpath.XPathActivity");
-		map.put("Beanshell",
-				"net.sf.taverna.t2.activities.beanshell.BeanshellActivity");
+		map.put("Tool", ACTIVITIES_PKG + "externaltool.ExternalToolActivity");
+		map.put("XPath", ACTIVITIES_PKG + "xpath.XPathActivity");
+		map.put("Beanshell", ACTIVITIES_PKG + "beanshell.BeanshellActivity");
 		TYPE_MAP = unmodifiableMap(map);
 	}
 
@@ -241,14 +256,13 @@ public class Validator extends XPathSupport {
 		if (type == null)
 			activities = select(component, ".//t:activities/t:activity");
 		else
-			activities = select(component,
-					".//t:activities/t:activity[t:class='%s']", type);
+			activities = select(component, ".//t:activities/t:activity"
+					+ "[t:class='%s']", type);
 		for (SemanticAnnotation sa : constraint.getSemanticAnnotation()) {
 			Iterator<Element> acit = activities.iterator();
 			while (acit.hasNext()) {
 				Element activity = acit.next();
-				String rdf = text(activity,
-						"./t:annotations//annotationBean[@class='%s']/content",
+				String rdf = text(activity, ANNOTATION_OF_CLASS + "/content",
 						ANNOTATION_BEAN);
 				if (rdf == null || rdf.isEmpty()) {
 					acit.remove();
@@ -279,8 +293,7 @@ public class Validator extends XPathSupport {
 
 		for (Element activity : activities)
 			for (ActivityAnnotation ba : constraint.getAnnotation())
-				if (!isMatched(activity,
-						"./t:annotations//annotationBean[@class='%s']",
+				if (!isMatched(activity, ANNOTATION_OF_CLASS,
 						getBasicAnnotationTerm(ba.getValue().value())))
 					// TODO should this be a warning?
 					return new Fail("no %s for %sactivity in component",
@@ -296,7 +309,7 @@ public class Validator extends XPathSupport {
 		List<Assertion> result = new ArrayList<>();
 		List<Element> restrictedPortList;
 		if (constraint.getName() != null) {
-			if (!isMatched(portList, "./t:port/t:name = '%s'",
+			if (!isMatched(portList, "./t:port[t:name = '%s']",
 					constraint.getName())) {
 				if (constraint.getMinOccurs().intValue() > 0)
 					result.add(new Fail("no %s port called '%s'", portType,
@@ -311,8 +324,8 @@ public class Validator extends XPathSupport {
 					constraint.getName()));
 			Element port = get(portList, "./t:port[t:name='%s']",
 					constraint.getName());
-			Element rdfElement = getMaybe(port,
-					".//annotationBean[@class='%s']/content", ANNOTATION_BEAN);
+			Element rdfElement = getMaybe(port, ANNOTATION_OF_CLASS
+					+ "/content", ANNOTATION_BEAN);
 			if (rdfElement == null
 					&& !constraint.getSemanticAnnotation().isEmpty())
 				result.add(new Warn("no semantic annotation present for "
@@ -333,7 +346,7 @@ public class Validator extends XPathSupport {
 								predName, portType, constraint.getName()));
 				}
 			}
-			restrictedPortList = Arrays.asList(port);
+			restrictedPortList = asList(port);
 		} else {
 			List<SemanticAnnotation> selectionCriteria = new ArrayList<>();
 			for (SemanticAnnotation sa : constraint.getSemanticAnnotation())
@@ -358,8 +371,7 @@ public class Validator extends XPathSupport {
 
 		for (PortAnnotation pa : constraint.getAnnotation())
 			for (Element port : restrictedPortList)
-				if (!isMatched(port,
-						"./t:annotations//annotationBean[@class='%s']",
+				if (!isMatched(port, ANNOTATION_OF_CLASS,
 						getBasicAnnotationTerm(pa.getValue().value())))
 					result.add(new Fail("%s port '%s' lacks %s annotation",
 							portType, name.get(port), pa.getValue().value()));
@@ -373,13 +385,13 @@ public class Validator extends XPathSupport {
 						portType, name.get(port)));
 				continue;
 			}
-			int depth = Integer.parseInt(text(port, "./t:depth"));
+			int depth = parseInt(text(port, "./t:depth"));
 			if (depth < constraint.getMinDepth().intValue())
 				result.add(new Fail("%s port '%s' is too shallow: "
 						+ "%d instead of %s", portType, name.get(port), depth,
 						constraint.getMinDepth()));
 			else if (!constraint.getMaxDepth().equals("unbounded")
-					&& depth > Integer.parseInt(constraint.getMaxDepth()))
+					&& depth > parseInt(constraint.getMaxDepth()))
 				result.add(new Fail("%s port '%s' is too deep: "
 						+ "%d instead of %s", portType, name.get(port), depth,
 						constraint.getMaxDepth()));
@@ -397,8 +409,8 @@ public class Validator extends XPathSupport {
 		Iterator<Element> it = ports.iterator();
 		mainloop: while (it.hasNext()) {
 			Element port = it.next();
-			Element content = getMaybe(port,
-					".//annotationBean[@class='%s']/content", ANNOTATION_BEAN);
+			Element content = getMaybe(port, ANNOTATION_OF_CLASS + "/content",
+					ANNOTATION_BEAN);
 			if (content == null) {
 				it.remove();
 				continue;
@@ -418,7 +430,7 @@ public class Validator extends XPathSupport {
 
 	private String getName(Resource node, String instance) {
 		Statement s = node.getProperty(node.getModel().createProperty(
-				"http://www.w3.org/2004/02/skos/core#prefLabel"));
+				SKOS_LABEL));
 		String name = (s == null ? node.getLocalName() : s.getObject()
 				.asLiteral().getString());
 		if (instance != null && !instance.isEmpty()) {
@@ -461,9 +473,8 @@ public class Validator extends XPathSupport {
 			Element component, SemanticAnnotation constraint,
 			Map<String, OntModel> ontology) throws XPathExpressionException {
 		OntModel model = ontology.get(constraint.getOntology());
-		String rdf = text(component, TOP
-				+ "/t:annotations//annotationBean[@class='%s']/content",
-				ANNOTATION_BEAN);
+		String rdf = text(component, TOP + "/" + ANNOTATION_OF_CLASS
+				+ "/content", ANNOTATION_BEAN);
 		return validateOntologyAssertion(rdf, constraint, model);
 	}
 
@@ -490,7 +501,7 @@ public class Validator extends XPathSupport {
 		} else {
 			result.add(new Pass("found '%s' annotation at component level",
 					propName));
-			RDFNode object = null;
+			RDFNode object = any;
 			if (!constraint.getValue().isEmpty())
 				object = model.createResource(constraint.getValue());
 			int numsat = rdf.listStatements(null, prop, object).toList().size();
@@ -499,7 +510,7 @@ public class Validator extends XPathSupport {
 						+ "level: %d instead of %s", propName, numsat,
 						constraint.getMinOccurs()));
 			else if (!constraint.getMaxOccurs().equals("unbounded")
-					&& numsat > Integer.parseInt(constraint.getMaxOccurs()))
+					&& numsat > parseInt(constraint.getMaxOccurs()))
 				result.add(new Fail("too many '%s' annotations at component "
 						+ "level: %d instead of %s", propName, numsat,
 						constraint.getMaxOccurs()));
@@ -511,8 +522,7 @@ public class Validator extends XPathSupport {
 		return result;
 	}
 
-	private static String BASE = String.format("widget://%s/",
-			UUID.randomUUID());
+	private static String BASE = format("widget://%s/", randomUUID());
 	protected static final String ENCODING = "TURTLE";
 
 	private OntModel parseRDF(Element rdfContainer) {
@@ -539,10 +549,8 @@ public class Validator extends XPathSupport {
 							local.createResource(constraint.getValue()))
 					.toList().isEmpty();
 
-		List<Statement> s = local
-				.listStatements(null,
-						local.createProperty(constraint.getPredicate()),
-						(RDFNode) null).toList();
+		List<Statement> s = local.listStatements(null,
+				local.createProperty(constraint.getPredicate()), any).toList();
 		if (s.isEmpty())
 			return false;
 
@@ -589,13 +597,13 @@ public class Validator extends XPathSupport {
 	private String getBasicAnnotationTerm(BasicAnnotations ba) {
 		switch (ba) {
 		case AUTHOR:
-			return "net.sf.taverna.t2.annotation.annotationbeans.Author";
+			return ANNOTATION_PKG + "Author";
 		case DESCRIPTION:
-			return "net.sf.taverna.t2.annotation.annotationbeans.FreeTextDescription";
+			return ANNOTATION_PKG + "FreeTextDescription";
 		case EXAMPLE:
-			return "net.sf.taverna.t2.annotation.annotationbeans.ExampleValue";
+			return ANNOTATION_PKG + "ExampleValue";
 		case TITLE:
-			return "net.sf.taverna.t2.annotation.annotationbeans.DescriptiveTitle";
+			return ANNOTATION_PKG + "DescriptiveTitle";
 		default:
 			throw new IllegalStateException();
 		}
@@ -603,8 +611,7 @@ public class Validator extends XPathSupport {
 
 	private Assertion validateComponentBasicAnnotation(Element component,
 			ComponentAnnotation constraint) throws XPathExpressionException {
-		if (isMatched(component, TOP
-				+ "/t:annotations//annotationBean[@class='%s']",
+		if (isMatched(component, TOP + "/" + ANNOTATION_OF_CLASS,
 				getBasicAnnotationTerm(constraint.getValue().value())))
 			return new Pass("found %s for component", constraint.getValue());
 		else
