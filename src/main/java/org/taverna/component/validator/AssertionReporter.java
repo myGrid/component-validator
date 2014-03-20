@@ -48,12 +48,29 @@ public abstract class AssertionReporter {
 		public boolean reportAssertions(List<Assertion> assertions) {
 			boolean sat = super.reportAssertions(assertions);
 			JSONArray ary = new JSONArray();
+			int f = 0, w = 0, s = 0;
 			for (Assertion a : assertions)
-				ary.put(new JSONObject().put(
-						"type",
-						a.satisfied ? a.warning ? "warning" : "satisifed"
-								: "failed").put("message", a.text));
-			out.println(new JSONObject().put("allSatisfied", sat).put("assertions", ary));
+				if (!a.satisfied) {
+					ary.put(new JSONObject().put("type", "failed").put(
+							"message", a.text));
+					f++;
+				}
+			for (Assertion a : assertions)
+				if (a.satisfied && a.warning) {
+					ary.put(new JSONObject().put("type", "warning").put(
+							"message", a.text));
+					w++;
+				}
+			for (Assertion a : assertions)
+				if (a.satisfied && !a.warning) {
+					ary.put(new JSONObject().put("type", "satisifed").put(
+							"message", a.text));
+					s++;
+				}
+			out.println(new JSONObject().put("allSatisfied", sat)
+					.put("assertions", ary).put("numSatisfied", s)
+					.put("numWarning", w).put("numFailed", f)
+					.put("numTotal", assertions.size()));
 			return sat;
 		}
 	}
