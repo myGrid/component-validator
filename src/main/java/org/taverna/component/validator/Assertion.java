@@ -13,13 +13,13 @@ public abstract class Assertion {
 
 	public static class Fail extends Assertion {
 		public Fail(String message, Object... args) {
-			super(false, false, String.format("[N] " + message, args));
+			super(false, false, String.format(message, args));
 		}
 	}
 
 	public static class Pass extends Assertion {
 		public Pass(String message, Object... args) {
-			this(false, "[Y] " + message, args);
+			this(false, message, args);
 		}
 
 		Pass(boolean warn, String message, Object... args) {
@@ -29,7 +29,7 @@ public abstract class Assertion {
 
 	public static class Warn extends Pass {
 		public Warn(String message, Object... args) {
-			super(true, "[W] " + message, args);
+			super(true, message, args);
 		}
 	}
 }

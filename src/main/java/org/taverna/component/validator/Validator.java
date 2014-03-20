@@ -200,20 +200,20 @@ public class Validator extends XPathSupport {
 		}
 	}
 
-	public List<Assertion> validateComponent(Element component,
-			Component componentProfile, Map<String, OntModel> ontology)
+	protected List<Assertion> validateComponent(Element component,
+			Component constraint, Map<String, OntModel> ontology)
 			throws XPathExpressionException {
 		List<Assertion> result = new ArrayList<>();
-		for (ComponentAnnotation ca : componentProfile.getAnnotation())
+		for (ComponentAnnotation ca : constraint.getAnnotation())
 			result.add(validateComponentBasicAnnotation(component, ca));
-		for (SemanticAnnotation sa : componentProfile.getSemanticAnnotation())
+		for (SemanticAnnotation sa : constraint.getSemanticAnnotation())
 			result.addAll(validateComponentSemanticAnnotation(component, sa,
 					ontology));
-		for (Port ip : componentProfile.getInputPort())
+		for (Port ip : constraint.getInputPort())
 			result.addAll(validateInputPort(component, ip, ontology));
-		for (Port op : componentProfile.getOutputPort())
+		for (Port op : constraint.getOutputPort())
 			result.addAll(validateOutputPort(component, op, ontology));
-		for (Activity ac : componentProfile.getActivity())
+		for (Activity ac : constraint.getActivity())
 			result.add(validateActivity(component, ac, ontology));
 		return result;
 	}
@@ -229,10 +229,9 @@ public class Validator extends XPathSupport {
 		TYPE_MAP = unmodifiableMap(map);
 	}
 
-	private Assertion validateActivity(Element component,
-			Activity activityConstraint, Map<String, OntModel> ontology)
-			throws XPathExpressionException {
-		String type = activityConstraint.getType();
+	private Assertion validateActivity(Element component, Activity constraint,
+			Map<String, OntModel> ontology) throws XPathExpressionException {
+		String type = constraint.getType();
 		if (type != null) {
 			String repltype = TYPE_MAP.get(type);
 			if (repltype != null)
@@ -244,7 +243,7 @@ public class Validator extends XPathSupport {
 		else
 			activities = select(component,
 					".//t:activities/t:activity[t:class='%s']", type);
-		for (SemanticAnnotation sa : activityConstraint.getSemanticAnnotation()) {
+		for (SemanticAnnotation sa : constraint.getSemanticAnnotation()) {
 			Iterator<Element> acit = activities.iterator();
 			while (acit.hasNext()) {
 				Element activity = acit.next();
@@ -263,92 +262,86 @@ public class Validator extends XPathSupport {
 			}
 		}
 
-		if (activities.size() < activityConstraint.getMinOccurs().intValue())
-			return new Fail(
-					"not enough %s activities in component to satisfy minimum (%s)",
-					activityConstraint.getType(), activityConstraint
-							.getMinOccurs());
-		if (!activityConstraint.getMaxOccurs().equals("unbounded"))
-			if (parseInt(activityConstraint.getMaxOccurs()) < activities.size())
-				return new Fail(
-						"too many %s activities to satisfy maximum (%s)",
-						activityConstraint.getType(),
-						activityConstraint.getMaxOccurs());
-		if (!activityConstraint.getSemanticAnnotation().isEmpty()
+		String desc = constraint.getType() == null ? "" : constraint.getType()
+				+ " ";
+		if (activities.size() < constraint.getMinOccurs().intValue())
+			return new Fail("not enough %sactivities in component to "
+					+ "satisfy minimum (%s)", desc, constraint.getMinOccurs());
+		if (!constraint.getMaxOccurs().equals("unbounded"))
+			if (parseInt(constraint.getMaxOccurs()) < activities.size())
+				return new Fail("too many %sactivities to "
+						+ "satisfy maximum (%s)", desc,
+						constraint.getMaxOccurs());
+		if (!constraint.getSemanticAnnotation().isEmpty()
 				&& activities.isEmpty())
-			return new Warn("no %s activity satisfies semantic constraints",
-					activityConstraint.getType());
+			return new Warn("no %sactivity satisfies semantic constraints",
+					desc);
 
 		for (Element activity : activities)
-			for (ActivityAnnotation ba : activityConstraint.getAnnotation())
+			for (ActivityAnnotation ba : constraint.getAnnotation())
 				if (!isMatched(activity,
 						"./t:annotations//annotationBean[@class='%s']",
 						getBasicAnnotationTerm(ba.getValue().value())))
 					// TODO should this be a warning?
-					return new Fail("no %s for %s activity in component",
-							ba.getValue(), activityConstraint.getType());
+					return new Fail("no %s for %sactivity in component",
+							ba.getValue(), desc);
 
-		return new Pass(
-				"confirmed semantic and cardinality constraints for %s activity(s)",
-				activityConstraint.getType());
+		return new Pass("confirmed semantic and cardinality "
+				+ "constraints for %sactivity(s)", desc);
 	}
 
 	private List<Assertion> validatePorts(String portType, Element portList,
-			Port portConstraint, Map<String, OntModel> ontology)
+			Port constraint, Map<String, OntModel> ontology)
 			throws XPathExpressionException {
 		List<Assertion> result = new ArrayList<>();
 		List<Element> restrictedPortList;
-		if (portConstraint.getName() != null) {
+		if (constraint.getName() != null) {
 			if (!isMatched(portList, "./t:port/t:name = '%s'",
-					portConstraint.getName())) {
-				if (portConstraint.getMinOccurs().intValue() > 0)
+					constraint.getName())) {
+				if (constraint.getMinOccurs().intValue() > 0)
 					result.add(new Fail("no %s port called '%s'", portType,
-							portConstraint.getName()));
+							constraint.getName()));
 				else
 					result.add(new Pass("%s port '%s' is optional and absent",
-							portType, portConstraint.getName()));
-				result.addAll(validateAbsentPort(portType, portConstraint,
-						ontology));
+							portType, constraint.getName()));
+				result.addAll(validateAbsentPort(portType, constraint, ontology));
 				return result;
 			}
 			result.add(new Pass("found %s port called '%s'", portType,
-					portConstraint.getName()));
+					constraint.getName()));
 			Element port = get(portList, "./t:port[t:name='%s']",
-					portConstraint.getName());
+					constraint.getName());
 			Element rdfElement = getMaybe(port,
 					".//annotationBean[@class='%s']/content", ANNOTATION_BEAN);
 			if (rdfElement == null
-					&& !portConstraint.getSemanticAnnotation().isEmpty())
-				result.add(new Warn(
-						"no semantic annotation present for %s port '%s'",
-						portType, portConstraint.getName()));
+					&& !constraint.getSemanticAnnotation().isEmpty())
+				result.add(new Warn("no semantic annotation present for "
+						+ "%s port '%s'", portType, constraint.getName()));
 			else {
 				OntModel rdf = parseRDF(rdfElement);
-				for (SemanticAnnotation sa : portConstraint
-						.getSemanticAnnotation()) {
+				for (SemanticAnnotation sa : constraint.getSemanticAnnotation()) {
 					OntModel om = ontology.get(sa.getOntology());
 					String predName = getName(
 							om.getProperty(sa.getPredicate()), sa.getValue());
 					if (satisfy(rdf, sa, om))
-						result.add(new Pass(
-								"satisfied semantic annotation for property '%s' on %s port '%s'",
-								predName, portType, portConstraint.getName()));
+						result.add(new Pass("satisfied semantic annotation "
+								+ "for property '%s' on %s port '%s'",
+								predName, portType, constraint.getName()));
 					else
-						result.add(new Fail(
-								"failed semantic annotation for property '%s' on %s port '%s'",
-								predName, portType, portConstraint.getName()));
+						result.add(new Fail("failed semantic annotation "
+								+ "for property '%s' on %s port '%s'",
+								predName, portType, constraint.getName()));
 				}
 			}
 			restrictedPortList = Arrays.asList(port);
 		} else {
 			List<SemanticAnnotation> selectionCriteria = new ArrayList<>();
-			for (SemanticAnnotation sa : portConstraint.getSemanticAnnotation())
+			for (SemanticAnnotation sa : constraint.getSemanticAnnotation())
 				if (sa.getMinOccurs().intValue() >= 1)
 					selectionCriteria.add(sa);
 			boolean mandate = !selectionCriteria.isEmpty();
 			if (selectionCriteria.isEmpty())
-				for (SemanticAnnotation sa : portConstraint
-						.getSemanticAnnotation())
+				for (SemanticAnnotation sa : constraint.getSemanticAnnotation())
 					if (sa.getMinOccurs().intValue() == 0
 							&& !sa.getMaxOccurs().equals("0"))
 						selectionCriteria.add(sa);
@@ -363,7 +356,7 @@ public class Validator extends XPathSupport {
 		for (Element port : restrictedPortList)
 			name.put(port, text(port, "./t:name"));
 
-		for (PortAnnotation pa : portConstraint.getAnnotation())
+		for (PortAnnotation pa : constraint.getAnnotation())
 			for (Element port : restrictedPortList)
 				if (!isMatched(port,
 						"./t:annotations//annotationBean[@class='%s']",
@@ -381,16 +374,15 @@ public class Validator extends XPathSupport {
 				continue;
 			}
 			int depth = Integer.parseInt(text(port, "./t:depth"));
-			if (depth < portConstraint.getMinDepth().intValue())
-				result.add(new Fail(
-						"%s port '%s' is too shallow: %d instead of %s",
-						portType, name.get(port), depth, portConstraint
-								.getMinDepth()));
-			else if (!portConstraint.getMaxDepth().equals("unbounded")
-					&& depth > Integer.parseInt(portConstraint.getMaxDepth()))
-				result.add(new Fail(
-						"%s port '%s' is too deep: %d instead of %s", portType,
-						name.get(port), depth, portConstraint.getMaxDepth()));
+			if (depth < constraint.getMinDepth().intValue())
+				result.add(new Fail("%s port '%s' is too shallow: "
+						+ "%d instead of %s", portType, name.get(port), depth,
+						constraint.getMinDepth()));
+			else if (!constraint.getMaxDepth().equals("unbounded")
+					&& depth > Integer.parseInt(constraint.getMaxDepth()))
+				result.add(new Fail("%s port '%s' is too deep: "
+						+ "%d instead of %s", portType, name.get(port), depth,
+						constraint.getMaxDepth()));
 			else
 				result.add(new Pass("%s port '%s' depth is in permitted range",
 						portType, name.get(port)));
@@ -439,89 +431,82 @@ public class Validator extends XPathSupport {
 
 	// Mock up for absence
 	private List<Assertion> validateAbsentPort(String portType,
-			Port portConstraint, Map<String, OntModel> ontology) {
+			Port constraint, Map<String, OntModel> ontology) {
 		List<Assertion> result = new ArrayList<>();
 		result.add(new Warn("ignoring depth constraints"));
-		for (PortAnnotation ac : portConstraint.getAnnotation())
+		for (PortAnnotation ac : constraint.getAnnotation())
 			result.add(new Warn("ignoring %s requirement", ac.getValue()
 					.value().value()));
-		for (SemanticAnnotation sa : portConstraint.getSemanticAnnotation())
+		for (SemanticAnnotation sa : constraint.getSemanticAnnotation())
 			result.addAll(validateOntologyAssertion(null, sa,
 					ontology.get(sa.getOntology())));
 		return result;
 	}
 
 	private List<Assertion> validateOutputPort(Element component,
-			Port portConstraint, Map<String, OntModel> ontology)
+			Port constraint, Map<String, OntModel> ontology)
 			throws XPathExpressionException {
 		return validatePorts("component output",
-				get(component, TOP + "/t:outputPorts"), portConstraint,
-				ontology);
+				get(component, TOP + "/t:outputPorts"), constraint, ontology);
 	}
 
 	private List<Assertion> validateInputPort(Element component,
-			Port portConstraint, Map<String, OntModel> ontology)
+			Port constraint, Map<String, OntModel> ontology)
 			throws XPathExpressionException {
 		return validatePorts("component input",
-				get(component, TOP + "/t:inputPorts"), portConstraint, ontology);
+				get(component, TOP + "/t:inputPorts"), constraint, ontology);
 	}
 
 	private List<Assertion> validateComponentSemanticAnnotation(
-			Element component, SemanticAnnotation annotationConstraint,
+			Element component, SemanticAnnotation constraint,
 			Map<String, OntModel> ontology) throws XPathExpressionException {
-		OntModel model = ontology.get(annotationConstraint.getOntology());
+		OntModel model = ontology.get(constraint.getOntology());
 		String rdf = text(component, TOP
 				+ "/t:annotations//annotationBean[@class='%s']/content",
 				ANNOTATION_BEAN);
-		return validateOntologyAssertion(rdf, annotationConstraint, model);
+		return validateOntologyAssertion(rdf, constraint, model);
 	}
 
 	private List<Assertion> validateOntologyAssertion(
-			@Nullable String rdfString,
-			SemanticAnnotation annotationConstraint, OntModel model) {
+			@Nullable String rdfString, SemanticAnnotation constraint,
+			OntModel model) {
 		List<Assertion> result = new ArrayList<>();
-		Property prop = model.createProperty(annotationConstraint
-				.getPredicate());
-		String propName = getName(prop, annotationConstraint.getValue());
+		Property prop = model.createProperty(constraint.getPredicate());
+		String propName = getName(prop, constraint.getValue());
 		if (rdfString == null) {
-			result.add(new Warn(
-					"no component-level semantic annotations; cannot check for '%s'",
-					propName));
+			result.add(new Warn("no component-level semantic annotations; "
+					+ "cannot check for '%s'", propName));
 			return result;
 		} else if (rdfString.isEmpty()) {
-			result.add(new Fail(
-					"failed to satisfy '%s' annotation at component level",
-					propName));
+			result.add(new Fail("failed to satisfy '%s' annotation at "
+					+ "component level", propName));
 			return result;
 		}
 
 		OntModel rdf = parseRDF(rdfString);
-		if (!satisfy(rdf, annotationConstraint, model)) {
-			result.add(new Fail(
-					"failed to satisfy '%s' annotation at component level",
-					propName));
+		if (!satisfy(rdf, constraint, model)) {
+			result.add(new Fail("failed to satisfy '%s' annotation at "
+					+ "component level", propName));
 		} else {
 			result.add(new Pass("found '%s' annotation at component level",
 					propName));
 			RDFNode object = null;
-			if (!annotationConstraint.getValue().isEmpty())
-				object = model.createResource(annotationConstraint.getValue());
+			if (!constraint.getValue().isEmpty())
+				object = model.createResource(constraint.getValue());
 			int numsat = rdf.listStatements(null, prop, object).toList().size();
-			if (numsat < annotationConstraint.getMinOccurs().intValue())
-				result.add(new Fail(
-						"too few '%s' annotations at component level: %d instead of %s",
-						propName, numsat, annotationConstraint.getMinOccurs()));
-			else if (!annotationConstraint.getMaxOccurs().equals("unbounded")
-					&& numsat > Integer.parseInt(annotationConstraint
-							.getMaxOccurs()))
-				result.add(new Fail(
-						"too many '%s' annotations at component level: %d instead of %s",
-						propName, numsat, annotationConstraint.getMaxOccurs()));
+			if (numsat < constraint.getMinOccurs().intValue())
+				result.add(new Fail("too few '%s' annotations at component "
+						+ "level: %d instead of %s", propName, numsat,
+						constraint.getMinOccurs()));
+			else if (!constraint.getMaxOccurs().equals("unbounded")
+					&& numsat > Integer.parseInt(constraint.getMaxOccurs()))
+				result.add(new Fail("too many '%s' annotations at component "
+						+ "level: %d instead of %s", propName, numsat,
+						constraint.getMaxOccurs()));
 			else
-				result.add(new Pass(
-						"%d '%s' annotations at component level: in range %s to %s",
-						numsat, propName, annotationConstraint.getMinOccurs(),
-						annotationConstraint.getMaxOccurs()));
+				result.add(new Pass("%d '%s' annotations at component level: "
+						+ "in range %s to %s", numsat, propName, constraint
+						.getMinOccurs(), constraint.getMaxOccurs()));
 		}
 		return result;
 	}
@@ -545,31 +530,30 @@ public class Validator extends XPathSupport {
 		return satisfy(parseRDF(rdf), annotationConstraint, model);
 	}
 
-	private boolean satisfy(OntModel local,
-			SemanticAnnotation annotationConstraint, OntModel model) {
-		if (!annotationConstraint.getValue().isEmpty())
+	private boolean satisfy(OntModel local, SemanticAnnotation constraint,
+			OntModel model) {
+		if (!constraint.getValue().isEmpty())
 			return !local
-					.listStatements(
-							null,
-							local.createProperty(annotationConstraint
-									.getPredicate()),
-							local.createResource(annotationConstraint
-									.getValue())).toList().isEmpty();
+					.listStatements(null,
+							local.createProperty(constraint.getPredicate()),
+							local.createResource(constraint.getValue()))
+					.toList().isEmpty();
 
-		List<Statement> s = local.listStatements(null,
-				local.createProperty(annotationConstraint.getPredicate()),
-				(RDFNode) null).toList();
+		List<Statement> s = local
+				.listStatements(null,
+						local.createProperty(constraint.getPredicate()),
+						(RDFNode) null).toList();
 		if (s.isEmpty())
 			return false;
 
 		/*
 		 * If there's no class constraint, we're done here.
 		 */
-		if (annotationConstraint.getClazz() == null)
+		if (constraint.getClazz() == null)
 			return true;
 
 		RDFNode node = s.get(0).getObject();
-		if (isInClass(node, annotationConstraint))
+		if (isInClass(node, constraint))
 			return true;
 
 		/*
@@ -578,7 +562,7 @@ public class Validator extends XPathSupport {
 		 */
 		if (node.isResource()
 				&& isInClass(model.getIndividual(node.asResource().getURI()),
-						annotationConstraint))
+						constraint))
 			return true;
 
 		log.warn("object " + node + " is not an individual");
@@ -618,16 +602,13 @@ public class Validator extends XPathSupport {
 	}
 
 	private Assertion validateComponentBasicAnnotation(Element component,
-			ComponentAnnotation annotationConstraint)
-			throws XPathExpressionException {
+			ComponentAnnotation constraint) throws XPathExpressionException {
 		if (isMatched(component, TOP
 				+ "/t:annotations//annotationBean[@class='%s']",
-				getBasicAnnotationTerm(annotationConstraint.getValue().value())))
-			return new Pass("found %s for component",
-					annotationConstraint.getValue());
+				getBasicAnnotationTerm(constraint.getValue().value())))
+			return new Pass("found %s for component", constraint.getValue());
 		else
-			return new Fail("no %s for component",
-					annotationConstraint.getValue());
+			return new Fail("no %s for component", constraint.getValue());
 	}
 
 	private void realizeAttrs(Element base) throws XPathExpressionException {

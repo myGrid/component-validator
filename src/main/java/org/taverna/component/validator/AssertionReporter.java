@@ -16,7 +16,14 @@ public class AssertionReporter {
 			out.println("NOT SATISFIED (" + sat + "/" + assertions.size() + ")");
 		out.println("");
 		for (Assertion a : assertions)
-			out.println(a.text);
+			if (!a.satisfied)
+				out.println("[N] " + a.text);
+		for (Assertion a : assertions)
+			if (a.satisfied && a.warning)
+				out.println("[w] " + a.text);
+		for (Assertion a : assertions)
+			if (a.satisfied && !a.warning)
+				out.println("[Y] " + a.text);
 		return sat == assertions.size();
 	}
 }
