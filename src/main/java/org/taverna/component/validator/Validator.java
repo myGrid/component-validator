@@ -41,7 +41,7 @@ import org.slf4j.Logger;
 import org.taverna.component.validator.Assertion.Fail;
 import org.taverna.component.validator.Assertion.Pass;
 import org.taverna.component.validator.Assertion.Warn;
-import org.taverna.component.validator.AssertionReporter.StdoutReporter;
+import org.taverna.component.validator.AssertionReporter.JSONReporter;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -108,7 +108,7 @@ public class Validator extends XPathSupport {
 		}
 		((AssertionReporter) forName(
 				getProperty("validator.reporter.class",
-						StdoutReporter.class.getName())).newInstance())
+						JSONReporter.class.getName())).newInstance())
 				.reportAssertions(assertions);
 	}
 
