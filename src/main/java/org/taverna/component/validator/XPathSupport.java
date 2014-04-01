@@ -1,9 +1,6 @@
 package org.taverna.component.validator;
 
 import static java.lang.String.format;
-import static javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD;
-import static javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA;
-import static javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET;
 import static javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING;
 import static javax.xml.XMLConstants.NULL_NS_URI;
 import static javax.xml.XMLConstants.XMLNS_ATTRIBUTE;
@@ -17,6 +14,9 @@ import static javax.xml.xpath.XPathConstants.NODE;
 import static javax.xml.xpath.XPathConstants.NODESET;
 import static javax.xml.xpath.XPathConstants.NUMBER;
 import static javax.xml.xpath.XPathConstants.STRING;
+import static org.taverna.component.validator.Constants.ACCESS_EXTERNAL_DTD;
+import static org.taverna.component.validator.Constants.ACCESS_EXTERNAL_SCHEMA;
+import static org.taverna.component.validator.Constants.ACCESS_EXTERNAL_STYLESHEET;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -192,4 +192,10 @@ class XPathSupport {
 
 		return result.getWriter().toString();
 	}
+}
+
+interface Constants {
+	static final String ACCESS_EXTERNAL_DTD = "http://javax.xml.XMLConstants/property/accessExternalDTD";
+	static final String ACCESS_EXTERNAL_SCHEMA = "http://javax.xml.XMLConstants/property/accessExternalSchema";
+	static final String ACCESS_EXTERNAL_STYLESHEET = "http://javax.xml.XMLConstants/property/accessExternalStylesheet";
 }
