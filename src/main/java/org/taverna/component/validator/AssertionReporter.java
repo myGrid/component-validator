@@ -63,7 +63,7 @@ public abstract class AssertionReporter {
 				}
 			for (Assertion a : assertions)
 				if (a.satisfied && !a.warning) {
-					ary.put(new JSONObject().put("type", "satisifed").put(
+					ary.put(new JSONObject().put("type", "satisfied").put(
 							"message", a.text));
 					s++;
 				}
