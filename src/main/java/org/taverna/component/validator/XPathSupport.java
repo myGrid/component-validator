@@ -52,8 +52,8 @@ import edu.umd.cs.findbugs.annotations.Nullable;
 
 class XPathSupport {
 	XPathSupport(Logger log, String... map) {
-		final Map<String, String> nsmap = new HashMap<>();
-		final Map<String, String> pfmap = new HashMap<>();
+		final Map<String, String> nsmap = new HashMap<String, String>();
+		final Map<String, String> pfmap = new HashMap<String, String>();
 		for (int i = 0; i < map.length; i += 2) {
 			nsmap.put(map[i], map[i + 1]);
 			pfmap.put(map[i + 1], map[i]);

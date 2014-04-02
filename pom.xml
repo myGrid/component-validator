@@ -13,6 +13,7 @@
 
 	<properties>
 		<appMainClass>org.taverna.component.validator.Validator</appMainClass>
+		<appJavaVersion>1.6</appJavaVersion>
 	</properties>
 
 	<dependencies>
@@ -85,8 +86,8 @@
 				<version>3.1</version>
 				<configuration>
 					<encoding>UTF-8</encoding>
-					<source>1.7</source>
-					<target>1.6</target>
+					<source>${appJavaVersion}</source>
+					<target>${appJavaVersion}</target>
 				</configuration>
 			</plugin>
 			<plugin>

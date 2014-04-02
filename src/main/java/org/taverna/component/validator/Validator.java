@@ -96,7 +96,11 @@ public class Validator extends XPathSupport {
 			// TODO separate loading model from actual validation
 			assertions = new Validator().validate(new URL(pwd, args[0]),
 					new URL(pwd, args[1]));
-		} catch (FileNotFoundException | UnmarshalException e) {
+		} catch (FileNotFoundException e) {
+			System.err.println(e.getMessage());
+			System.exit(1);
+			throw e;
+		} catch (UnmarshalException e) {
 			Throwable t = e;
 			while (t.getCause() != null)
 				t = t.getCause();
@@ -154,7 +158,7 @@ public class Validator extends XPathSupport {
 
 	public List<Profile> getProfiles(String root) throws JAXBException {
 		Unmarshaller u = context.createUnmarshaller();
-		List<Profile> result = new ArrayList<>();
+		List<Profile> result = new ArrayList<Profile>();
 		String where = root;
 		while (true) {
 			Profile p = u.unmarshal(new SAXSource(new InputSource(where)),
@@ -175,10 +179,10 @@ public class Validator extends XPathSupport {
 
 	public List<Assertion> validate(Element component, List<Profile> profiles)
 			throws IOException, XPathExpressionException {
-		List<Assertion> assertions = new ArrayList<>();
-		Map<String, OntModel> ontocache = new HashMap<>();
+		List<Assertion> assertions = new ArrayList<Assertion>();
+		Map<String, OntModel> ontocache = new HashMap<String, OntModel>();
 		for (Profile p : profiles) {
-			Map<String, OntModel> ontomap = new HashMap<>();
+			Map<String, OntModel> ontomap = new HashMap<String, OntModel>();
 			for (Ontology o : p.getOntology()) {
 				if (!ontocache.containsKey(o.getValue()))
 					ontocache.put(o.getValue(), loadOntology(o.getValue()));
@@ -220,7 +224,7 @@ public class Validator extends XPathSupport {
 	protected List<Assertion> validateComponent(Element component,
 			Component constraint, Map<String, OntModel> ontology)
 			throws XPathExpressionException {
-		List<Assertion> result = new ArrayList<>();
+		List<Assertion> result = new ArrayList<Assertion>();
 		for (ComponentAnnotation ca : constraint.getAnnotation())
 			result.add(validateComponentBasicAnnotation(component, ca));
 		for (SemanticAnnotation sa : constraint.getSemanticAnnotation())
@@ -237,7 +241,7 @@ public class Validator extends XPathSupport {
 
 	private static final Map<String, String> TYPE_MAP;
 	static {
-		Map<String, String> map = new HashMap<>();
+		Map<String, String> map = new HashMap<String, String>();
 		map.put("Tool", ACTIVITIES_PKG + "externaltool.ExternalToolActivity");
 		map.put("XPath", ACTIVITIES_PKG + "xpath.XPathActivity");
 		map.put("Beanshell", ACTIVITIES_PKG + "beanshell.BeanshellActivity");
@@ -306,7 +310,7 @@ public class Validator extends XPathSupport {
 	private List<Assertion> validatePorts(String portType, Element portList,
 			Port constraint, Map<String, OntModel> ontology)
 			throws XPathExpressionException {
-		List<Assertion> result = new ArrayList<>();
+		List<Assertion> result = new ArrayList<Assertion>();
 		List<Element> restrictedPortList;
 		if (constraint.getName() != null) {
 			if (!isMatched(portList, "./t:port[t:name = '%s']",
@@ -348,7 +352,7 @@ public class Validator extends XPathSupport {
 			}
 			restrictedPortList = asList(port);
 		} else {
-			List<SemanticAnnotation> selectionCriteria = new ArrayList<>();
+			List<SemanticAnnotation> selectionCriteria = new ArrayList<SemanticAnnotation>();
 			for (SemanticAnnotation sa : constraint.getSemanticAnnotation())
 				if (sa.getMinOccurs().intValue() >= 1)
 					selectionCriteria.add(sa);
@@ -365,7 +369,7 @@ public class Validator extends XPathSupport {
 						portType));
 		}
 
-		Map<Element, String> name = new HashMap<>();
+		Map<Element, String> name = new HashMap<Element, String>();
 		for (Element port : restrictedPortList)
 			name.put(port, text(port, "./t:name"));
 
@@ -444,7 +448,7 @@ public class Validator extends XPathSupport {
 	// Mock up for absence
 	private List<Assertion> validateAbsentPort(String portType,
 			Port constraint, Map<String, OntModel> ontology) {
-		List<Assertion> result = new ArrayList<>();
+		List<Assertion> result = new ArrayList<Assertion>();
 		result.add(new Warn("ignoring depth constraints"));
 		for (PortAnnotation ac : constraint.getAnnotation())
 			result.add(new Warn("ignoring %s requirement", ac.getValue()
@@ -481,7 +485,7 @@ public class Validator extends XPathSupport {
 	private List<Assertion> validateOntologyAssertion(
 			@Nullable String rdfString, SemanticAnnotation constraint,
 			OntModel model) {
-		List<Assertion> result = new ArrayList<>();
+		List<Assertion> result = new ArrayList<Assertion>();
 		Property prop = model.createProperty(constraint.getPredicate());
 		String propName = getName(prop, constraint.getValue());
 		if (rdfString == null) {
